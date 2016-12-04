@@ -1,0 +1,96 @@
+---
+title: "Machine Learning Course Project"
+author: "Felix Gerlsbeck"
+date: "4 Dezember 2016"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Executive Summary 
+
+The goal of this analyis is to use a variety of movement variables to predict the class of exercise for a given observed combination of movements. A random forest model is fitted and chosen as the best model. The out-of-sample accuracy is estimated to be 0.9988.
+
+## Data Preprocessing
+
+The first step is to download the testing and training datasets and read them into R, as well as load the necessary packages. As the Out-of-sample accuracy has to be estimated, the dowloaded training set is split again into a primary training set (train1) and a testing set (test1)
+
+```{r data}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+url_training <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_testing <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+dest_training <- "~/Dropbox/Data_Science/pml-training.csv"
+dest_testing <- "~/Dropbox/Data_Science/pml-testing.csv"
+download.file(url_training, dest_training, method = "curl")
+download.file(url_testing, dest_testing, method = "curl")
+training <- read.csv(dest_training)
+testing <- read.csv(dest_testing)
+set.seed(123)
+inTrain <- createDataPartition(y=training$classe, p = 0.75, list = FALSE)
+train1 <- training[inTrain, ]
+test1 <- training[-inTrain, ]
+```
+
+The next step is to analyze the raw data and tidying the covariates on the training set. We exclude variables with very little variability, as they are not going to be useful predictors. We also remove variables that for qualitative reasons are not useful for prediction (observation identifier, username and timestamp variables). An inspection of the head of the dataset also suggests that some variables are mostly NAs, so we remove those variables for which more than 75% of observations are missing. 53 predictors, plus the variable classe, which is to be predicted, remain. 
+
+```{r preprocessing}
+nzv <- nearZeroVar(train1)
+train1 <- train1[, -nzv]
+test1 <- test1[, -nzv]
+train1 <- train1[, 6:ncol(train1)]
+test1 <- test1[, 6:ncol(test1)]
+NAs <- sapply(train1, function(x) mean(is.na(x))) > 0.75
+train1 <- train1[, NAs == FALSE]
+test1 <- test1[, NAs == FALSE]
+```
+
+## Decision Tree Model
+
+The first classification model to try is a standard rpart decision tree model. The accuracy of the final model on the train1 dataset is 0.55, which is not too good. Testing the decision tree model on the test set also yields an accuracy of only 0.488.
+Next, we include principal components analysis of the predictors into the model and compare the accuracy: at 0.391, the accuracy is even worse.
+
+```{r tree}
+rpart_model <- train(classe~., data = train1, method = "rpart")
+rpart_model
+rpart_model$finalModel
+pred_rpart <- predict(rpart_model, newdata = test1)
+confusionMatrix(pred_rpart, test1$classe)
+
+rpart_model2 <- train(classe~., data = train1, preProcess = "pca", method = "rpart")
+rpart_model2
+pred_rpart2 <- predict(rpart_model2, newdata = test1)
+confusionMatrix(pred_rpart2, test1$classe)
+```
+
+## Random Forest Model
+
+Hence, we train a random forest model on the train1 dataset, including cross-validation. Next, we test the model on the test1 dataset.
+
+```{r randomforest, cache = TRUE}
+rf_model <- train(classe~., data = train1, method = "rf", trControl = trainControl(method = "cv", number = 3))
+rf_model$finalModel
+
+pred_rf <- predict(rf_model, newdata = test1)
+confusionMatrix(pred_rf, test1$classe)
+```
+
+The accuracy on the test1 set is extremely high at 0.9988. The out-of-sample accuracy therefore is estimated to be 0.9988 as well. This model is our choice to predict the 20 test cases in the dowloaded testing set.
+
+##Estimating the 20 test cases
+
+Now we can use the random forest model to predict the downloaded test set of 20 observations. First, the variable transformations from the training set have to be applied to the final test set.
+
+```{r final_test}
+testing <- testing[, -nzv]
+testing <- testing[, 6:ncol(testing)]
+testing <- testing[, NAs == FALSE]
+pred_final <- predict(rf_model, newdata = testing)
+pred_final
+```
+
+
